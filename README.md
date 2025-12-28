@@ -77,7 +77,8 @@ DOWNLOADER_URL=http://localhost:5000
 ```
 
 **Примечание:** 
-- `DOWNLOADER_URL` - URL universalDownloader сервиса (по умолчанию http://localhost:5000)
+- `DOWNLOADER_URL` - URL video-downloader сервиса (по умолчанию http://localhost:5000)
+- Для работы скачивания видео по URL нужно запустить Python микросервис (см. `video-downloader/README.md`)
 
 **Примечание:** 
 - `YANDEX_API_KEY` - **обязателен** для работы системы
@@ -88,7 +89,15 @@ DOWNLOADER_URL=http://localhost:5000
   - Linux/Mac: обычно не нужен, если FFmpeg установлен через пакетный менеджер
 - `YANDEX_API_KEY` и `YANDEX_FOLDER_ID` используются как для Yandex GPT, так и для Yandex Speech-to-Text
 
-4. Убедитесь, что FFmpeg установлен:
+4. Запустите video-downloader микросервис (для скачивания видео по URL):
+```bash
+cd video-downloader
+pip install -r requirements.txt
+python app.py
+```
+Сервис должен быть запущен на порту 5000.
+
+5. Убедитесь, что FFmpeg установлен:
 ```bash
 ffmpeg -version
 ```

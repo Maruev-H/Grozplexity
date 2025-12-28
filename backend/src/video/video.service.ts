@@ -620,7 +620,7 @@ export class VideoService {
   }
 
   /**
-   * Обрабатывает видео из URL (скачивает через universalDownloader и анализирует)
+   * Обрабатывает видео из URL (скачивает через downloader сервис и анализирует)
    */
   async processVideoFromUrl(url: string): Promise<any> {
     if (!url) {
@@ -635,34 +635,38 @@ export class VideoService {
       );
     }
 
-    console.log(`📥 Обработка видео из URL: ${url} (платформа: ${platform})`);
-
-    // Создаем уникальное имя файла
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    const downloadedVideoPath = path.join(this.uploadsDir, `downloaded_${uniqueSuffix}`);
+    console.log(`📥 Скачиваем и обрабатываем видео: ${url} (платформа: ${platform})`);
 
     try {
-      // Скачиваем видео через universalDownloader
-      const videoPath = await this.downloaderService.downloadVideo(url, downloadedVideoPath);
+      // Получаем информацию о видео от downloader сервиса
+      const downloadResult = await this.downloaderService.downloadVideo(url);
+      
+      if (!downloadResult.success || !downloadResult.data?.file_path) {
+        throw new Error(downloadResult.error || 'Не удалось скачать видео');
+      }
+
+      const filePath = downloadResult.data.file_path;
+      
+      // Проверяем существование файла
+      if (!fsSync.existsSync(filePath)) {
+        throw new Error('Скачанный файл не найден');
+      }
 
       // Обрабатываем скачанное видео как обычное
       const file = {
-        filename: path.basename(videoPath),
-        path: videoPath,
+        filename: downloadResult.data.filename || path.basename(filePath),
+        path: filePath,
       };
 
       const result = await this.processVideo(file);
 
       // Удаляем скачанный файл после обработки
-      await fs.unlink(videoPath).catch(() => {
+      await fs.unlink(filePath).catch(() => {
         // Игнорируем ошибки удаления
       });
 
       return result;
     } catch (error: any) {
-      // Удаляем файл в случае ошибки
-      await fs.unlink(downloadedVideoPath).catch(() => {});
-      
       throw new BadRequestException(
         `Не удалось обработать видео из URL: ${error.message}`
       );

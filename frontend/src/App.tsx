@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import axios from 'axios';
-import { Upload, Video, Sparkles, FileText, Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { Upload, Video, Sparkles, FileText, Loader2, CheckCircle2, XCircle, Link } from 'lucide-react';
 import './App.css';
 
 const API_URL = 'http://localhost:3000';
@@ -40,6 +40,8 @@ interface AnalysisResult {
 
 function App() {
   const [file, setFile] = useState<File | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string>('');
+  const [inputMode, setInputMode] = useState<'file' | 'url'>('file');
   const [uploading, setUploading] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,40 +58,102 @@ function App() {
     }
   };
 
-  const handleUpload = async () => {
-    if (!file) {
-      setError('Пожалуйста, выберите файл');
-      return;
-    }
-
-    setUploading(true);
+  const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setVideoUrl(e.target.value);
     setError(null);
     setAnalysis(null);
+    setGeneratedScript(null);
+  };
 
-    const formData = new FormData();
-    formData.append('video', file);
-
+  const isValidUrl = (url: string): boolean => {
     try {
-      const response = await axios.post(`${API_URL}/video/upload`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      setAnalysis(response.data);
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.message || err.message || 'Ошибка при загрузке видео';
-      
-      // Улучшенная обработка ошибок Yandex GPT
-      if (errorMessage.includes('аутентификации') || errorMessage.includes('API') || errorMessage.includes('YANDEX')) {
-        setError('Ошибка аутентификации Yandex GPT. Проверьте YANDEX_API_KEY и YANDEX_FOLDER_ID.');
-      } else if (errorMessage.includes('лимит') || errorMessage.includes('429')) {
-        setError('Превышен лимит запросов Yandex GPT. Попробуйте позже.');
-      } else {
-        setError(errorMessage);
+      const urlObj = new URL(url);
+      const hostname = urlObj.hostname.toLowerCase();
+      return (
+        hostname.includes('youtube.com') ||
+        hostname.includes('youtu.be') ||
+        hostname.includes('tiktok.com') ||
+        hostname.includes('instagram.com')
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  const handleUpload = async () => {
+    if (inputMode === 'file') {
+      if (!file) {
+        setError('Пожалуйста, выберите файл');
+        return;
       }
-      console.error('Upload error:', err);
-    } finally {
-      setUploading(false);
+
+      setUploading(true);
+      setError(null);
+      setAnalysis(null);
+
+      const formData = new FormData();
+      formData.append('video', file);
+
+      try {
+        const response = await axios.post(`${API_URL}/video/upload`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+        setAnalysis(response.data);
+      } catch (err: any) {
+        const errorMessage = err.response?.data?.message || err.message || 'Ошибка при загрузке видео';
+        
+        // Улучшенная обработка ошибок Yandex GPT
+        if (errorMessage.includes('аутентификации') || errorMessage.includes('API') || errorMessage.includes('YANDEX')) {
+          setError('Ошибка аутентификации Yandex GPT. Проверьте YANDEX_API_KEY и YANDEX_FOLDER_ID.');
+        } else if (errorMessage.includes('лимит') || errorMessage.includes('429')) {
+          setError('Превышен лимит запросов Yandex GPT. Попробуйте позже.');
+        } else {
+          setError(errorMessage);
+        }
+        console.error('Upload error:', err);
+      } finally {
+        setUploading(false);
+      }
+    } else {
+      // Режим URL
+      if (!videoUrl.trim()) {
+        setError('Пожалуйста, введите ссылку на видео');
+        return;
+      }
+
+      if (!isValidUrl(videoUrl)) {
+        setError('Неподдерживаемая ссылка. Поддерживаются: YouTube, TikTok, Instagram');
+        return;
+      }
+
+      setUploading(true);
+      setError(null);
+      setAnalysis(null);
+
+      try {
+        const response = await axios.post(`${API_URL}/video/analyze-url`, {
+          url: videoUrl.trim(),
+        });
+        setAnalysis(response.data);
+      } catch (err: any) {
+        const errorMessage = err.response?.data?.message || err.message || 'Ошибка при обработке видео';
+        
+        // Улучшенная обработка ошибок
+        if (errorMessage.includes('аутентификации') || errorMessage.includes('API') || errorMessage.includes('YANDEX')) {
+          setError('Ошибка аутентификации Yandex GPT. Проверьте YANDEX_API_KEY и YANDEX_FOLDER_ID.');
+        } else if (errorMessage.includes('лимит') || errorMessage.includes('429')) {
+          setError('Превышен лимит запросов Yandex GPT. Попробуйте позже.');
+        } else if (errorMessage.includes('Неподдерживаемая платформа')) {
+          setError('Неподдерживаемая платформа. Поддерживаются: YouTube, TikTok, Instagram');
+        } else {
+          setError(errorMessage);
+        }
+        console.error('URL processing error:', err);
+      } finally {
+        setUploading(false);
+      }
     }
   };
 
@@ -146,37 +210,114 @@ function App() {
               <Video className="section-icon" />
               Загрузка видео
             </h2>
-            <div className="upload-area">
-              <input
-                type="file"
-                id="video-upload"
-                accept="video/*"
-                onChange={handleFileChange}
-                className="file-input"
+            
+            {/* Переключатель режима */}
+            <div className="mode-switcher">
+              <button
+                type="button"
+                className={`mode-btn ${inputMode === 'file' ? 'active' : ''}`}
+                onClick={() => {
+                  setInputMode('file');
+                  setError(null);
+                  setAnalysis(null);
+                  setGeneratedScript(null);
+                }}
                 disabled={uploading}
-              />
-              <label htmlFor="video-upload" className="upload-label">
-                <Upload className="upload-icon" />
-                <span>{file ? file.name : 'Выберите видео файл'}</span>
-              </label>
-              {file && (
-                <button
-                  onClick={handleUpload}
-                  disabled={uploading}
-                  className="btn btn-primary"
-                >
-                  {uploading ? (
-                    <>
-                      <Loader2 className="spinner" />
-                      Обработка...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles />
-                      Анализировать видео
-                    </>
+              >
+                <Upload className="mode-icon" />
+                Загрузить файл
+              </button>
+              <button
+                type="button"
+                className={`mode-btn ${inputMode === 'url' ? 'active' : ''}`}
+                onClick={() => {
+                  setInputMode('url');
+                  setError(null);
+                  setAnalysis(null);
+                  setGeneratedScript(null);
+                }}
+                disabled={uploading}
+              >
+                <Link className="mode-icon" />
+                Вставить ссылку
+              </button>
+            </div>
+
+            <div className="upload-area">
+              {inputMode === 'file' ? (
+                <>
+                  <input
+                    type="file"
+                    id="video-upload"
+                    accept="video/*"
+                    onChange={handleFileChange}
+                    className="file-input"
+                    disabled={uploading}
+                  />
+                  <label htmlFor="video-upload" className="upload-label">
+                    <Upload className="upload-icon" />
+                    <span>{file ? file.name : 'Выберите видео файл'}</span>
+                  </label>
+                  {file && (
+                    <button
+                      onClick={handleUpload}
+                      disabled={uploading}
+                      className="btn btn-primary"
+                    >
+                      {uploading ? (
+                        <>
+                          <Loader2 className="spinner" />
+                          Обработка...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles />
+                          Анализировать видео
+                        </>
+                      )}
+                    </button>
                   )}
-                </button>
+                </>
+              ) : (
+                <>
+                  <div className="url-input-wrapper">
+                    <input
+                      type="text"
+                      value={videoUrl}
+                      onChange={handleUrlChange}
+                      placeholder="Вставьте ссылку на видео (YouTube, TikTok, Instagram)"
+                      className="url-input"
+                      disabled={uploading}
+                    />
+                  </div>
+                  <div className="url-hint">
+                    <p>Поддерживаемые платформы:</p>
+                    <ul>
+                      <li>YouTube (включая Shorts)</li>
+                      <li>TikTok</li>
+                      <li>Instagram (включая Reels)</li>
+                    </ul>
+                  </div>
+                  {videoUrl.trim() && (
+                    <button
+                      onClick={handleUpload}
+                      disabled={uploading || !isValidUrl(videoUrl)}
+                      className="btn btn-primary"
+                    >
+                      {uploading ? (
+                        <>
+                          <Loader2 className="spinner" />
+                          Скачивание и обработка...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles />
+                          Анализировать видео
+                        </>
+                      )}
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </section>
