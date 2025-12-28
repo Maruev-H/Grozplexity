@@ -66,15 +66,58 @@ export class VideoController {
     return await this.videoService.processVideoFromUrl(body.url);
   }
 
+  @Post('analyze-profile')
+  async analyzeProfile(@Body() body: { profileUrl: string; videosCount?: number }) {
+    if (!body.profileUrl) {
+      throw new BadRequestException('Profile URL is required');
+    }
+    const videosCount = body.videosCount && body.videosCount > 0 ? body.videosCount : 3;
+    return await this.videoService.analyzeProfile(body.profileUrl, videosCount);
+  }
+
   @Post('generate-script')
   async generateScript(@Body() body: { topic: string; stylePassport: any }) {
     if (!body.topic || !body.stylePassport) {
       throw new BadRequestException('Topic and stylePassport are required');
     }
-    const script = await this.videoService.generateScript(
+    
+    // Всегда генерируем 3 варианта сценариев
+    const scripts = await this.videoService.generateScriptVariants(
       body.topic,
       body.stylePassport,
+      3,
     );
-    return { script };
+    
+    // Автоматически анализируем хуки для каждого сценария
+    const hooksAnalysis: { [key: string]: { pluses: string[]; minuses: string[]; analysis: string } } = {};
+    
+    for (const script of scripts) {
+      // Извлекаем хук из первой секции сценария
+      const hookMatch = script.match(/\[00:00-00:0[0-9]\][\s\S]*?Текст:\s*(.+?)(?=\n\[|\n$)/);
+      if (hookMatch) {
+        const hook = hookMatch[1].trim();
+        try {
+          const analysis = await this.videoService.analyzeHook(hook, body.stylePassport);
+          hooksAnalysis[hook] = analysis;
+        } catch (error: any) {
+          console.warn(`Не удалось проанализировать хук: ${error.message}`);
+          // Продолжаем без анализа этого хука
+        }
+      }
+    }
+    
+    return { scripts, variants: true, hooksAnalysis };
+  }
+
+  @Post('analyze-hook')
+  async analyzeHook(@Body() body: { hook: string; stylePassport: any }) {
+    if (!body.hook || !body.stylePassport) {
+      throw new BadRequestException('Hook and stylePassport are required');
+    }
+    const analysis = await this.videoService.analyzeHook(
+      body.hook,
+      body.stylePassport,
+    );
+    return { analysis };
   }
 }

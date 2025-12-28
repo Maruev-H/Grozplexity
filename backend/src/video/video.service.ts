@@ -619,6 +619,14 @@ export class VideoService {
     return await this.yandexGptService.generateScript(topic, stylePassport);
   }
 
+  async generateScriptVariants(topic: string, stylePassport: any, count: number = 3): Promise<string[]> {
+    return await this.yandexGptService.generateScriptVariants(topic, stylePassport, count);
+  }
+
+  async analyzeHook(hook: string, stylePassport: any): Promise<{ pluses: string[]; minuses: string[]; analysis: string }> {
+    return await this.yandexGptService.analyzeHook(hook, stylePassport);
+  }
+
   /**
    * Обрабатывает видео из URL (скачивает через downloader сервис и анализирует)
    */
@@ -667,8 +675,189 @@ export class VideoService {
 
       return result;
     } catch (error: any) {
+      // Сохраняем оригинальное сообщение об ошибке для более детальной информации
+      const errorMessage = error.message || 'Неизвестная ошибка';
+      
+      // Если ошибка связана с недоступностью downloader сервиса, передаем детальное сообщение
+      if (errorMessage.includes('не запущен') || errorMessage.includes('ECONNREFUSED')) {
+        throw new BadRequestException(errorMessage);
+      }
+      
       throw new BadRequestException(
-        `Не удалось обработать видео из URL: ${error.message}`
+        `Не удалось обработать видео из URL: ${errorMessage}`
+      );
+    }
+  }
+
+  /**
+   * Анализирует последние N видео из профиля автора и создает обобщенный паспорт стиля
+   */
+  async analyzeProfile(profileUrl: string, videosCount: number = 3): Promise<any> {
+    if (!profileUrl) {
+      throw new BadRequestException('Profile URL is required');
+    }
+
+    console.log(`📊 Анализируем профиль: ${profileUrl} (последние ${videosCount} видео)`);
+
+    try {
+      // Получаем информацию о профиле (bio, description, links)
+      const profileInfoResult = await this.downloaderService.getProfileInfo(profileUrl);
+      const profileInfo = profileInfoResult?.success ? profileInfoResult.data : {
+        profile_header: '',
+        description: '',
+        bio: '',
+        links: [],
+        external_links: false,
+        cta_in_bio: '',
+      };
+
+      console.log(`📋 Информация о профиле получена:`, {
+        description: profileInfo.description?.substring(0, 100) || 'пусто',
+        links: profileInfo.links?.length || 0,
+      });
+
+      // Получаем список последних видео из профиля
+      const profileResult = await this.downloaderService.getProfileVideos(profileUrl, videosCount);
+      
+      if (!profileResult.success || !profileResult.data?.videos || profileResult.data.videos.length === 0) {
+        throw new Error('Не удалось получить список видео из профиля');
+      }
+
+      const videos = profileResult.data.videos;
+      console.log(`✅ Найдено ${videos.length} видео для анализа`);
+
+      // Анализируем каждое видео
+      const analysisResults: any[] = [];
+      const transcripts: string[] = [];
+      const allFrames: string[] = [];
+      const allVisualDescriptions: string[] = [];
+
+      for (let i = 0; i < videos.length; i++) {
+        const video = videos[i];
+        console.log(`📹 Анализируем видео ${i + 1}/${videos.length}: ${video.title}`);
+        
+        try {
+          // Скачиваем и обрабатываем видео
+          const downloadResult = await this.downloaderService.downloadVideo(video.url);
+          
+          if (!downloadResult.success || !downloadResult.data?.file_path) {
+            console.warn(`⚠️ Не удалось скачать видео ${i + 1}, пропускаем`);
+            continue;
+          }
+
+          const filePath = downloadResult.data.file_path;
+          
+          if (!fsSync.existsSync(filePath)) {
+            console.warn(`⚠️ Файл не найден для видео ${i + 1}, пропускаем`);
+            continue;
+          }
+
+          // Обрабатываем видео
+          const file = {
+            filename: downloadResult.data.filename || path.basename(filePath),
+            path: filePath,
+          };
+
+          const result = await this.processVideo(file);
+          
+          // Собираем данные для обобщенного анализа
+          if (result.transcript) {
+            transcripts.push(result.transcript);
+          }
+          if (result.frames && result.frames.length > 0) {
+            allFrames.push(...result.frames);
+          }
+          if (result.visualDescription) {
+            allVisualDescriptions.push(result.visualDescription);
+          }
+          
+          analysisResults.push({
+            videoTitle: video.title,
+            videoUrl: video.url,
+            stylePassport: result.stylePassport,
+            transcript: result.transcript,
+          });
+
+          // Удаляем скачанный файл
+          await fs.unlink(filePath).catch(() => {});
+        } catch (error: any) {
+          console.error(`❌ Ошибка при анализе видео ${i + 1}:`, error.message);
+          // Продолжаем анализ остальных видео
+        }
+      }
+
+      if (analysisResults.length === 0) {
+        throw new Error('Не удалось проанализировать ни одно видео из профиля');
+      }
+
+      console.log(`✅ Проанализировано ${analysisResults.length} видео. Создаем обобщенный паспорт стиля...`);
+
+      // Создаем обобщенный паспорт стиля на основе всех видео
+      const combinedTranscript = transcripts.join('\n\n---\n\n');
+      const combinedVisualDescription = allVisualDescriptions.join('. ');
+
+      const aggregatedStylePassport = await this.yandexGptService.analyzeVideoContent(
+        combinedTranscript,
+        combinedVisualDescription,
+      );
+
+      // Дополнительно анализируем паттерны и общие элементы
+      const aggregatedInsights = await this.yandexGptService.analyzeProfilePatterns(
+        analysisResults.map(r => r.stylePassport),
+      );
+
+      // Анализируем шапку профиля отдельно
+      const profileHeaderAnalysis = await this.yandexGptService.analyzeProfileHeader(
+        profileInfo.profile_header || profileInfo.description || '',
+      );
+
+      // Анализируем описание профиля
+      const profileAnalysis = await this.yandexGptService.analyzeProfileDescription(
+        profileInfo.description || '',
+        profileInfo.bio || '',
+        profileInfo.links || [],
+        profileInfo.cta_in_bio || '',
+      );
+
+      // Создаем анализ ДНК профиля (структурированный формат)
+      const dnaAnalysis = {
+        structuralPatterns: aggregatedInsights.structuralPatterns || [],
+        speechFormula: aggregatedInsights.speechFormula || {},
+        consistency: aggregatedInsights.consistency || [],
+        variability: aggregatedInsights.variability || [],
+        productConclusion: aggregatedInsights.productConclusion || 'Это не отдельные видео, а воспроизводимая формула автора.',
+        dnaUsage: aggregatedInsights.dnaUsage || [],
+      };
+
+      return {
+        profileUrl,
+        videosAnalyzed: analysisResults.length,
+        videos: analysisResults.map(r => ({
+          title: r.videoTitle,
+          url: r.videoUrl,
+        })),
+        profileDescription: {
+          header: profileInfo.profile_header || profileInfo.description || 'не указано',
+          original: profileInfo.description || profileInfo.bio || 'не указано',
+          bio: profileInfo.bio || 'не указано',
+          links: profileInfo.links || [],
+        },
+        profileHeaderAnalysis,
+        profileAnalysis,
+        aggregatedStylePassport: {
+          ...aggregatedStylePassport,
+          insights: {
+            ...aggregatedStylePassport.insights,
+            ...aggregatedInsights,
+          },
+        },
+        dnaAnalysis,
+        individualResults: analysisResults,
+      };
+    } catch (error: any) {
+      console.error('Error analyzing profile:', error);
+      throw new BadRequestException(
+        `Не удалось проанализировать профиль: ${error.message}`
       );
     }
   }

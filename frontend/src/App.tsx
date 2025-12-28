@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import axios from 'axios';
-import { Upload, Video, Sparkles, FileText, Loader2, CheckCircle2, XCircle, Link } from 'lucide-react';
+import { Upload, Video, Sparkles, FileText, Loader2, CheckCircle2, XCircle, Link, Copy, Check } from 'lucide-react';
 import './App.css';
 
 const API_URL = 'http://localhost:3000';
@@ -36,25 +36,65 @@ interface AnalysisResult {
   frames: string[];
   stylePassport: StylePassport;
   visualDescription?: string;
+  isProfileAnalysis?: boolean;
+  videos?: Array<{ title: string; url: string }>;
+  profileDescription?: {
+    header: string;
+    original: string;
+    bio: string;
+    links: string[];
+  };
+  profileHeaderAnalysis?: {
+    headerText: string;
+    keyWords: string[];
+    hasCta: boolean;
+    ctaText: string;
+    structure: string;
+    analysis: string;
+  };
+  profileAnalysis?: {
+    hasExternalLinks: boolean;
+    repeatingCtaInHeader: string;
+    ctaType: string;
+    consistency: string;
+    profileAsExtension: boolean;
+  };
+  dnaAnalysis?: {
+    structuralPatterns: string[];
+    speechFormula: {
+      speedRange?: string;
+      speedVariation?: string;
+      emotionalTone?: string;
+      personalFormulations?: string;
+    };
+    consistency: string[];
+    variability: string[];
+    productConclusion: string;
+    dnaUsage: string[];
+  };
 }
 
 function App() {
   const [file, setFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string>('');
-  const [inputMode, setInputMode] = useState<'file' | 'url'>('file');
+  const [profileUrl, setProfileUrl] = useState<string>('');
+  const [inputMode, setInputMode] = useState<'file' | 'url' | 'profile'>('file');
   const [uploading, setUploading] = useState(false);
+  const [analyzingProfile, setAnalyzingProfile] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scriptTopic, setScriptTopic] = useState('');
   const [generatingScript, setGeneratingScript] = useState(false);
-  const [generatedScript, setGeneratedScript] = useState<string | null>(null);
+  const [generatedScripts, setGeneratedScripts] = useState<string[]>([]);
+  const [hookAnalysis, setHookAnalysis] = useState<{ [key: string]: { pluses: string[]; minuses: string[]; analysis: string } }>({});
+  const [copiedScriptIndex, setCopiedScriptIndex] = useState<number | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setFile(e.target.files[0]);
       setError(null);
       setAnalysis(null);
-      setGeneratedScript(null);
+      setGeneratedScripts([]);
     }
   };
 
@@ -62,7 +102,14 @@ function App() {
     setVideoUrl(e.target.value);
     setError(null);
     setAnalysis(null);
-    setGeneratedScript(null);
+    setGeneratedScripts([]);
+  };
+
+  const handleProfileUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setProfileUrl(e.target.value);
+    setError(null);
+    setAnalysis(null);
+    setGeneratedScripts([]);
   };
 
   const isValidUrl = (url: string): boolean => {
@@ -78,6 +125,69 @@ function App() {
     } catch {
       return false;
     }
+  };
+
+  const isProfileUrl = (url: string): boolean => {
+    const urlLower = url.toLowerCase();
+    
+    // YouTube: канал, профиль или shorts плейлист
+    // Форматы: youtube.com/@username, youtube.com/@username/shorts, youtube.com/c/channelname, youtube.com/channel/ID
+    if (urlLower.includes('youtube.com/@')) {
+      // Проверяем, что это не конкретное видео (нет /watch или /shorts/ с ID)
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname.toLowerCase();
+      // Если путь заканчивается на /shorts или /@username/shorts - это плейлист shorts (профиль)
+      if (pathname.includes('/shorts') && !pathname.match(/\/shorts\/[a-zA-Z0-9_-]+$/)) {
+        return true; // Это плейлист shorts профиля
+      }
+      // Если есть /@username без /watch или /shorts/ID - это профиль
+      if (pathname.match(/^\/@[^\/]+$/) || pathname.match(/^\/@[^\/]+\/shorts$/)) {
+        return true;
+      }
+      // Если нет /watch - это профиль
+      if (!pathname.includes('/watch') && !pathname.match(/\/shorts\/[a-zA-Z0-9_-]+$/)) {
+        return true;
+      }
+    }
+    if (urlLower.includes('youtube.com/c/') || 
+        urlLower.includes('youtube.com/channel/') ||
+        urlLower.includes('youtube.com/user/')) {
+      return true;
+    }
+    
+    // TikTok: профиль (без /video/)
+    // Формат: tiktok.com/@username
+    if (urlLower.includes('tiktok.com/@')) {
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname.toLowerCase();
+      // Если путь заканчивается на /@username или /@username/ - это профиль
+      if (pathname.match(/^\/@[^\/]+\/?$/) || pathname === '/') {
+        return true;
+      }
+      // Если нет /video/ - это профиль
+      if (!pathname.includes('/video/')) {
+        return true;
+      }
+    }
+    
+    // Instagram: профиль (без /p/, /reel/, /tv/)
+    // Формат: instagram.com/username
+    if (urlLower.includes('instagram.com/')) {
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname.toLowerCase();
+      // Если путь заканчивается на /username или /username/ - это профиль
+      if (pathname.match(/^\/[^\/]+\/?$/) && pathname !== '/') {
+        // Проверяем, что это не конкретный пост/рилс
+        if (!pathname.includes('/p/') && 
+            !pathname.includes('/reel/') && 
+            !pathname.includes('/tv/') &&
+            !pathname.includes('/stories/')) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
   };
 
   const handleUpload = async () => {
@@ -117,7 +227,7 @@ function App() {
         setUploading(false);
       }
     } else {
-      // Режим URL
+      // Режим URL (старая логика - оставляем для обратной совместимости)
       if (!videoUrl.trim()) {
         setError('Пожалуйста, введите ссылку на видео');
         return;
@@ -133,10 +243,32 @@ function App() {
       setAnalysis(null);
 
       try {
-        const response = await axios.post(`${API_URL}/video/analyze-url`, {
-          url: videoUrl.trim(),
-        });
-        setAnalysis(response.data);
+        // Проверяем, является ли это ссылкой на профиль
+        if (isProfileUrl(videoUrl.trim())) {
+          // Анализируем профиль (последние 3 видео)
+          const response = await axios.post(`${API_URL}/video/analyze-profile`, {
+            profileUrl: videoUrl.trim(),
+            videosCount: 3,
+          });
+          // Преобразуем результат анализа профиля в формат анализа одного видео
+          setAnalysis({
+            transcript: `Проанализировано ${response.data.videosAnalyzed} видео из профиля`,
+            frames: [],
+            stylePassport: response.data.aggregatedStylePassport,
+            visualDescription: 'Анализ профиля автора',
+            isProfileAnalysis: true,
+            videos: response.data.videos,
+            profileDescription: response.data.profileDescription,
+            profileAnalysis: response.data.profileAnalysis,
+            dnaAnalysis: response.data.dnaAnalysis,
+          });
+        } else {
+          // Анализируем одно видео
+          const response = await axios.post(`${API_URL}/video/analyze-url`, {
+            url: videoUrl.trim(),
+          });
+          setAnalysis(response.data);
+        }
       } catch (err: any) {
         const errorMessage = err.response?.data?.message || err.message || 'Ошибка при обработке видео';
         
@@ -157,6 +289,59 @@ function App() {
     }
   };
 
+  const handleAnalyzeProfile = async () => {
+    if (!profileUrl.trim()) {
+      setError('Пожалуйста, введите ссылку на профиль');
+      return;
+    }
+
+    if (!isValidUrl(profileUrl)) {
+      setError('Неподдерживаемая ссылка. Поддерживаются: YouTube, TikTok, Instagram');
+      return;
+    }
+
+    if (!isProfileUrl(profileUrl.trim())) {
+      setError('Это не ссылка на профиль. Пожалуйста, вставьте ссылку на профиль автора (канал, аккаунт)');
+      return;
+    }
+
+    setAnalyzingProfile(true);
+    setError(null);
+    setAnalysis(null);
+    setGeneratedScripts([]);
+
+    try {
+      const response = await axios.post(`${API_URL}/video/analyze-profile`, {
+        profileUrl: profileUrl.trim(),
+        videosCount: 3,
+      });
+      
+      // Преобразуем результат анализа профиля в формат анализа одного видео
+      setAnalysis({
+        transcript: `Проанализировано ${response.data.videosAnalyzed} видео из профиля автора. Проведен анализ ДНК стиля.`,
+        frames: [],
+        stylePassport: response.data.aggregatedStylePassport,
+        visualDescription: 'Анализ ДНК профиля автора на основе последних видео',
+        isProfileAnalysis: true,
+        videos: response.data.videos,
+        profileDescription: response.data.profileDescription,
+        profileAnalysis: response.data.profileAnalysis,
+        dnaAnalysis: response.data.dnaAnalysis,
+      });
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.message || err.message || 'Ошибка при анализе профиля';
+      
+      if (errorMessage.includes('не запущен') || errorMessage.includes('ECONNREFUSED')) {
+        setError('Python микросервис video-downloader не запущен. Запустите его для анализа профилей.');
+      } else {
+        setError(errorMessage);
+      }
+      console.error('Profile analysis error:', err);
+    } finally {
+      setAnalyzingProfile(false);
+    }
+  };
+
   const handleGenerateScript = async () => {
     if (!scriptTopic.trim() || !analysis) {
       setError('Введите тему для сценария');
@@ -165,14 +350,26 @@ function App() {
 
     setGeneratingScript(true);
     setError(null);
-    setGeneratedScript(null);
+    setGeneratedScripts([]);
+    setHookAnalysis({});
 
     try {
       const response = await axios.post(`${API_URL}/video/generate-script`, {
         topic: scriptTopic,
         stylePassport: analysis.stylePassport,
+        variants: 3, // Всегда генерируем 3 варианта
       });
-      setGeneratedScript(response.data.script);
+      
+      if (response.data.variants && response.data.scripts) {
+        setGeneratedScripts(response.data.scripts);
+        // Автоматически устанавливаем анализ хуков, если они пришли с сервера
+        if (response.data.hooksAnalysis) {
+          setHookAnalysis(response.data.hooksAnalysis);
+        }
+      } else if (response.data.script) {
+        // Fallback: если вернулся один сценарий, оборачиваем в массив
+        setGeneratedScripts([response.data.script]);
+      }
     } catch (err: any) {
       const errorMessage = err.response?.data?.message || err.message || 'Ошибка при генерации сценария';
       
@@ -188,6 +385,29 @@ function App() {
     } finally {
       setGeneratingScript(false);
     }
+  };
+
+
+  const handleCopyScript = async (script: string, index?: number) => {
+    try {
+      await navigator.clipboard.writeText(script);
+      if (index !== undefined) {
+        setCopiedScriptIndex(index);
+        setTimeout(() => setCopiedScriptIndex(null), 2000);
+      } else {
+        setCopiedScriptIndex(-1);
+        setTimeout(() => setCopiedScriptIndex(null), 2000);
+      }
+    } catch (err) {
+      console.error('Failed to copy script:', err);
+      setError('Не удалось скопировать сценарий');
+    }
+  };
+
+  const extractHookFromScript = (script: string): string | null => {
+    // Ищем первую секцию [00:00-00:05] или [00:00-00:10] с текстом
+    const hookMatch = script.match(/\[00:00-00:0[0-9]\][\s\S]*?Текст:\s*(.+?)(?=\n\[|\n$)/);
+    return hookMatch ? hookMatch[1].trim() : null;
   };
 
   return (
@@ -220,7 +440,7 @@ function App() {
                   setInputMode('file');
                   setError(null);
                   setAnalysis(null);
-                  setGeneratedScript(null);
+                  setGeneratedScripts([]);
                 }}
                 disabled={uploading}
               >
@@ -234,12 +454,26 @@ function App() {
                   setInputMode('url');
                   setError(null);
                   setAnalysis(null);
-                  setGeneratedScript(null);
+                  setGeneratedScripts([]);
                 }}
-                disabled={uploading}
+                disabled={uploading || analyzingProfile}
               >
                 <Link className="mode-icon" />
-                Вставить ссылку
+                Ссылка на видео
+              </button>
+              <button
+                type="button"
+                className={`mode-btn ${inputMode === 'profile' ? 'active' : ''}`}
+                onClick={() => {
+                  setInputMode('profile');
+                  setError(null);
+                  setAnalysis(null);
+                  setGeneratedScripts([]);
+                }}
+                disabled={uploading || analyzingProfile}
+              >
+                <Video className="mode-icon" />
+                Профиль автора
               </button>
             </div>
 
@@ -278,6 +512,49 @@ function App() {
                     </button>
                   )}
                 </>
+              ) : inputMode === 'profile' ? (
+                <>
+                  <div className="url-input-wrapper">
+                    <input
+                      type="text"
+                      value={profileUrl}
+                      onChange={handleProfileUrlChange}
+                      placeholder="Вставьте ссылку на профиль автора (YouTube канал, TikTok аккаунт, Instagram профиль)"
+                      className="url-input"
+                      disabled={analyzingProfile}
+                    />
+                  </div>
+                  <div className="url-hint">
+                    <p>Поддерживаемые платформы:</p>
+                    <ul>
+                      <li>YouTube: youtube.com/@username или youtube.com/c/channelname</li>
+                      <li>TikTok: tiktok.com/@username</li>
+                      <li>Instagram: instagram.com/username</li>
+                    </ul>
+                    <p style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: 'var(--primary)' }}>
+                      🧬 <strong>Анализ ДНК:</strong> Мы проанализируем последние 3 видео автора и создадим обобщенный паспорт стиля с анализом паттернов, эволюции и консистентности!
+                    </p>
+                  </div>
+                  {profileUrl.trim() && (
+                    <button
+                      onClick={handleAnalyzeProfile}
+                      disabled={analyzingProfile || !isValidUrl(profileUrl) || !isProfileUrl(profileUrl.trim())}
+                      className="btn btn-primary"
+                    >
+                      {analyzingProfile ? (
+                        <>
+                          <Loader2 className="spinner" />
+                          Анализ ДНК профиля...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles />
+                          Анализировать профиль (ДНК)
+                        </>
+                      )}
+                    </button>
+                  )}
+                </>
               ) : (
                 <>
                   <div className="url-input-wrapper">
@@ -293,9 +570,9 @@ function App() {
                   <div className="url-hint">
                     <p>Поддерживаемые платформы:</p>
                     <ul>
-                      <li>YouTube (включая Shorts)</li>
-                      <li>TikTok</li>
-                      <li>Instagram (включая Reels)</li>
+                      <li>YouTube (видео, Shorts)</li>
+                      <li>TikTok (видео)</li>
+                      <li>Instagram (видео, Reels)</li>
                     </ul>
                   </div>
                   {videoUrl.trim() && (
@@ -338,6 +615,183 @@ function App() {
                   <CheckCircle2 className="section-icon success" />
                   Результаты анализа
                 </h2>
+
+                {/* Информация о профиле и анализ ДНК, если анализировался профиль */}
+                {analysis.isProfileAnalysis && analysis.videos && (
+                  <>
+                    <div className="result-section">
+                      <h3>📹 Проанализированные видео</h3>
+                      <div className="profile-videos">
+                        <p>Проанализировано <strong>{analysis.videos.length}</strong> последних видео из профиля:</p>
+                        <ul>
+                          {analysis.videos.map((video: any, i: number) => (
+                            <li key={i}>
+                              <a href={video.url} target="_blank" rel="noopener noreferrer">
+                                {video.title || `Видео ${i + 1}`}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    {analysis.profileDescription && (
+                      <div className="result-section">
+                        <h3>📋 Шапка профиля автора</h3>
+                        <div className="profile-header-section">
+                          <div className="profile-header-original">
+                            <h4>Оригинал:</h4>
+                            <p className="profile-header-text">{analysis.profileDescription.header || 'не указано'}</p>
+                          </div>
+                          {analysis.profileHeaderAnalysis && (
+                            <div className="profile-header-analysis">
+                              <h4>Анализ шапки:</h4>
+                              <div className="header-analysis-content">
+                                <p><strong>Структура:</strong> {analysis.profileHeaderAnalysis.structure}</p>
+                                {analysis.profileHeaderAnalysis.hasCta && (
+                                  <p><strong>CTA:</strong> {analysis.profileHeaderAnalysis.ctaText}</p>
+                                )}
+                                {analysis.profileHeaderAnalysis.keyWords && analysis.profileHeaderAnalysis.keyWords.length > 0 && (
+                                  <div>
+                                    <strong>Ключевые слова:</strong>
+                                    <ul className="header-keywords">
+                                      {analysis.profileHeaderAnalysis.keyWords.map((word: string, i: number) => (
+                                        <li key={i}>{word}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                <p className="header-analysis-text"><strong>Анализ:</strong> {analysis.profileHeaderAnalysis.analysis}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {analysis.profileAnalysis && (
+                      <div className="result-section">
+                        <h3>🧠 Анализ профиля автора</h3>
+                        <div className="profile-analysis">
+                          <ul>
+                            <li>Наличие внешних ссылок: <strong>{analysis.profileAnalysis.hasExternalLinks ? 'да' : 'нет'}</strong></li>
+                            <li>Повторяющийся CTA в шапке: <strong>{analysis.profileAnalysis.repeatingCtaInHeader}</strong></li>
+                            <li>Тип CTA: <strong>{analysis.profileAnalysis.ctaType}</strong></li>
+                            <li>Консистентность: <strong>{analysis.profileAnalysis.consistency}</strong></li>
+                            <li>Профиль используется как продолжение видео: <strong>{analysis.profileAnalysis.profileAsExtension ? 'да' : 'нет'}</strong></li>
+                          </ul>
+                        </div>
+                      </div>
+                    )}
+
+                    {analysis.dnaAnalysis && (
+                      <div className="result-section">
+                        <h3>🧬 ДНК АВТОРА (на основе {analysis.videos?.length || 3} видео)</h3>
+                        <div className="dna-analysis">
+                          {analysis.dnaAnalysis.structuralPatterns && analysis.dnaAnalysis.structuralPatterns.length > 0 && (
+                            <div className="dna-section">
+                              <h4>1️⃣ Структурные паттерны</h4>
+                              <p className="dna-subtitle">(что повторяется в каждом видео)</p>
+                              <ul>
+                                {analysis.dnaAnalysis.structuralPatterns.map((pattern: string, i: number) => (
+                                  <li key={i}>{pattern}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {analysis.dnaAnalysis.speechFormula && Object.keys(analysis.dnaAnalysis.speechFormula).length > 0 && (
+                            <div className="dna-section">
+                              <h4>2️⃣ Речевая формула</h4>
+                              <p className="dna-subtitle">(измеримые характеристики)</p>
+                              <ul>
+                                {analysis.dnaAnalysis.speechFormula.speedRange && (
+                                  <li>Скорость речи: {analysis.dnaAnalysis.speechFormula.speedRange}</li>
+                                )}
+                                {analysis.dnaAnalysis.speechFormula.speedVariation && (
+                                  <li>Разброс скорости: {analysis.dnaAnalysis.speechFormula.speedVariation}</li>
+                                )}
+                                {analysis.dnaAnalysis.speechFormula.emotionalTone && (
+                                  <li>Эмоциональный тон: {analysis.dnaAnalysis.speechFormula.emotionalTone}</li>
+                                )}
+                                {analysis.dnaAnalysis.speechFormula.personalFormulations && (
+                                  <li>Использование личных формулировок: {analysis.dnaAnalysis.speechFormula.personalFormulations}</li>
+                                )}
+                              </ul>
+                            </div>
+                          )}
+
+                          {analysis.dnaAnalysis.consistency && analysis.dnaAnalysis.consistency.length > 0 && (
+                            <div className="dna-section">
+                              <h4>3️⃣ Консистентность</h4>
+                              <p className="dna-subtitle">(докажи, что это не случайность)</p>
+                              <ul>
+                                {analysis.dnaAnalysis.consistency.map((item: string, i: number) => (
+                                  <li key={i}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {analysis.dnaAnalysis.variability && analysis.dnaAnalysis.variability.length > 0 && (
+                            <div className="dna-section">
+                              <h4>4️⃣ Вариативность</h4>
+                              <p className="dna-subtitle">(что меняется, а что нет)</p>
+                              <ul>
+                                {analysis.dnaAnalysis.variability.map((item: string, i: number) => (
+                                  <li key={i}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {analysis.dnaAnalysis.productConclusion && (
+                            <div className="dna-section dna-conclusion">
+                              <h4>5️⃣ Продуктовый вывод</h4>
+                              <p className="dna-conclusion-text">{analysis.dnaAnalysis.productConclusion}</p>
+                            </div>
+                          )}
+
+                          {analysis.dnaAnalysis.dnaUsage && analysis.dnaAnalysis.dnaUsage.length > 0 && (
+                            <div className="dna-section">
+                              <h4>6️⃣ Как ДНК используется в генерации контента</h4>
+                              <p className="dna-subtitle">(явная связка анализа → генерация)</p>
+                              <div className="dna-usage">
+                                <p>При генерации нового сценария мы ОБЯЗАНЫ:</p>
+                                <ul>
+                                  {analysis.dnaAnalysis.dnaUsage.map((item: string, i: number) => (
+                                    <li key={i}>
+                                      <span className="dna-check">✓</span> {item.replace(/^При генерации (мы ОБЯЗАНЫ|нового сценария мы ОБЯЗАНЫ) /, '')}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+                          )}
+
+                          {analysis.profileAnalysis && (
+                            <div className="dna-section">
+                              <h4>🔗 Связка видео и профиля</h4>
+                              <p className="dna-subtitle">(как профиль связан с видео)</p>
+                              <div className="profile-video-link">
+                                <ul>
+                                  <li>Видео выполняет роль входной точки</li>
+                                  <li>Профиль = точка углубления</li>
+                                  {analysis.profileAnalysis.ctaType === 'внешний (уводит трафик)' && (
+                                    <li>CTA в видео намеренно неявный, т.к. основной призыв вынесен в профиль</li>
+                                  )}
+                                  {analysis.profileAnalysis.profileAsExtension && (
+                                    <li>Профиль используется как продолжение видео (да)</li>
+                                  )}
+                                </ul>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
 
                 {/* Транскрипция */}
                 <div className="result-section">
@@ -460,18 +914,80 @@ function App() {
                           Сгенерировать сценарий
                         </>
                       )}
-        </button>
+                    </button>
                   </div>
 
-                  {generatedScript && (
-                    <div className="script-result">
-                      <h3>Готовый сценарий:</h3>
-                      <div className="script-box">
-                        <pre>{generatedScript}</pre>
-                      </div>
+                  {/* Варианты сценариев */}
+                  {generatedScripts.length > 0 && (
+                    <div className="script-variants">
+                      <h3>Варианты сценариев (A/B/C):</h3>
+                      {generatedScripts.map((script, index) => {
+                        const hook = extractHookFromScript(script);
+                        return (
+                          <div key={index} className="script-variant">
+                            <div className="variant-header">
+                              <h4>Вариант {String.fromCharCode(65 + index)}</h4>
+                              <button
+                                onClick={() => handleCopyScript(script, index)}
+                                className="btn btn-small"
+                                title="Скопировать сценарий"
+                              >
+                                {copiedScriptIndex === index ? (
+                                  <>
+                                    <Check size={16} />
+                                    Скопировано
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy size={16} />
+                                    Копировать
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                            {hook && (
+                              <div className="hook-section">
+                                <div className="hook-display">
+                                  <strong>Хук:</strong> "{hook}"
+                                </div>
+                                {hookAnalysis[hook] && (
+                                  <div className="hook-analysis">
+                                    <div className="hook-analysis-text">
+                                      <strong>Анализ:</strong> {hookAnalysis[hook].analysis}
+                                    </div>
+                                    {hookAnalysis[hook].pluses.length > 0 && (
+                                      <div className="hook-pluses">
+                                        <strong>✅ Плюсы:</strong>
+                                        <ul>
+                                          {hookAnalysis[hook].pluses.map((plus, i) => (
+                                            <li key={i}>{plus}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {hookAnalysis[hook].minuses.length > 0 && (
+                                      <div className="hook-minuses">
+                                        <strong>⚠️ Минусы:</strong>
+                                        <ul>
+                                          {hookAnalysis[hook].minuses.map((minus, i) => (
+                                            <li key={i}>{minus}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            <div className="script-box">
+                              <pre>{script}</pre>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
-      </div>
+                </div>
               </section>
             </>
           )}

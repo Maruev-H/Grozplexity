@@ -230,8 +230,9 @@ ${visualDescription ? `Визуальное описание: ${visualDescriptio
     }
   }
 
-  async generateScript(topic: string, stylePassport: any): Promise<string> {
-    const prompt = `Создай посекундный сценарий для нового видео на тему "${topic}".
+  async generateScript(topic: string, stylePassport: any, variant?: number): Promise<string> {
+    const variantText = variant ? ` (Вариант ${variant})` : '';
+    const prompt = `Создай посекундный сценарий для нового видео на тему "${topic}"${variantText}.
 
 Используй следующий "Паспорт стиля" автора ТОЛЬКО для стиля и структуры, НО создавай НОВЫЙ контент на тему "${topic}":
 ${JSON.stringify(stylePassport, null, 2)}
@@ -241,6 +242,16 @@ ${JSON.stringify(stylePassport, null, 2)}
 2. СТИЛЬ автора: используй структуру, темп речи, эмоциональную окраску и типичные фразы из паспорта стиля
 3. НЕ копируй содержание из паспорта стиля - это был анализ ДРУГОГО видео
 4. Создай ПОЛНОСТЬЮ НОВЫЙ контент на тему "${topic}", но в стиле автора
+5. СЦЕНАРИЙ ДОЛЖЕН БЫТЬ ЖИВЫМ И ЕСТЕСТВЕННЫМ - используй разговорный стиль, сленг, эмоции, как в оригинале
+6. НЕ делай сценарий стерильным или формальным - он должен быть дерзким, сырым, живым, как оригинальное видео автора
+${variant ? '7. Создай УНИКАЛЬНЫЙ вариант сценария, отличающийся от других вариантов подходом, углом подачи или структурой' : ''}
+
+СТИЛЬ ПОДАЧИ:
+- Используй разговорный язык, как в оригинале
+- Добавь эмоции, экспрессию, живые выражения
+- Не бойся использовать сленг, жаргон, неформальные выражения
+- Сценарий должен звучать естественно, как живая речь, а не как заученный текст
+- Сохрани дерзость и "сырость" оригинального стиля автора
 
 Структура должна соответствовать паспорту стиля:
 - Хук: ${stylePassport.structure?.hook || 'начни с интригующего вопроса/утверждения'}
@@ -252,19 +263,20 @@ ${JSON.stringify(stylePassport, null, 2)}
 Используй типичные фразы автора: ${stylePassport.toneOfVoice?.typicalPhrases?.join(', ') || 'используй стиль автора'}
 Темп речи: ${stylePassport.toneOfVoice?.speechRate || '150 слов/мин'}
 Эмоциональная окраска: ${stylePassport.toneOfVoice?.emotionalTone || 'познавательно'}
+Стиль речи: ${stylePassport.toneOfVoice?.style || 'естественный'}
 
 Формат вывода:
 [00:00-00:05]
 Кадр: (описание визуала в стиле автора)
-Текст: (Хук в стиле автора на тему "${topic}")
+Текст: (Хук в стиле автора на тему "${topic}" - живой, дерзкий, естественный)
 
 [00:05-00:15]
 Кадр: (описание визуала)
-Текст: (текст в стиле автора на тему "${topic}")
+Текст: (текст в стиле автора на тему "${topic}" - разговорный, эмоциональный)
 
 ...и так далее до 60 секунд
 
-Создай сценарий длительностью 60 секунд, разбитый на сегменты по 5-10 секунд. ВСЁ содержание должно быть на тему "${topic}", а не на тему из паспорта стиля!`;
+Создай сценарий длительностью 60 секунд, разбитый на сегменты по 5-10 секунд. ВСЁ содержание должно быть на тему "${topic}", но в живом, естественном, дерзком стиле автора, как в оригинале!`;
 
     try {
       const response = await this.axiosInstance.post('/completion', {
@@ -277,7 +289,7 @@ ${JSON.stringify(stylePassport, null, 2)}
         messages: [
           {
             role: 'system',
-            text: 'Ты профессиональный сценарист для коротких видео. Создавай креативные и увлекательные сценарии.',
+            text: 'Ты профессиональный сценарист для коротких видео. Создавай живые, естественные, дерзкие сценарии в стиле который отправляет пользователь. Не делай их стерильными или формальными - они должны звучать как живая речь, с эмоциями, сленгом и экспрессией.',
           },
           {
             role: 'user',
@@ -318,6 +330,130 @@ ${JSON.stringify(stylePassport, null, 2)}
       }
       
       throw new Error(`Failed to generate script: ${error?.response?.data?.error?.message || error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Генерирует несколько вариантов сценариев (A/B тестирование)
+   */
+  async generateScriptVariants(topic: string, stylePassport: any, count: number = 3): Promise<string[]> {
+    const variants: string[] = [];
+    
+    // Генерируем варианты последовательно для стабильности
+    for (let i = 1; i <= count; i++) {
+      try {
+        const variant = await this.generateScript(topic, stylePassport, i);
+        variants.push(variant);
+      } catch (error: any) {
+        console.error(`Error generating variant ${i}:`, error);
+        // Если один вариант не удался, продолжаем с остальными
+        variants.push(`Ошибка генерации варианта ${i}: ${error.message}`);
+      }
+    }
+    
+    return variants;
+  }
+
+  /**
+   * Анализирует хук и объясняет, почему он работает (с плюсами и минусами)
+   */
+  async analyzeHook(hook: string, stylePassport: any): Promise<{ pluses: string[]; minuses: string[]; analysis: string }> {
+    const prompt = `Проанализируй следующий хук из видео и объясни его эффективность с плюсами и минусами.
+
+Хук: "${hook}"
+
+Контекст стиля автора:
+- Типичные фразы: ${stylePassport.toneOfVoice?.typicalPhrases?.join(', ') || 'не указаны'}
+- Эмоциональная окраска: ${stylePassport.toneOfVoice?.emotionalTone || 'не указана'}
+- Стиль речи: ${stylePassport.toneOfVoice?.style || 'не указан'}
+- Крючки удержания из анализа: ${stylePassport.insights?.retentionHooks?.join(', ') || 'не указаны'}
+
+Верни ТОЛЬКО валидный JSON без дополнительного текста:
+{
+  "pluses": ["плюс 1", "плюс 2", "плюс 3"],
+  "minuses": ["минус 1", "минус 2"],
+  "analysis": "краткий анализ эффективности хука (2-3 предложения)"
+}
+
+Плюсы должны включать:
+- Психологические триггеры (любопытство, эмоции, интрига)
+- Соответствие стилю автора
+- Элементы, которые цепляют внимание
+- Сильные стороны хука
+
+Минусы должны включать:
+- Потенциальные слабые стороны
+- Риски (если есть)
+- Что можно улучшить
+
+Начни ответ сразу с { без предисловий.`;
+
+    try {
+      const response = await this.axiosInstance.post('/completion', {
+        modelUri: `gpt://${this.folderId}/yandexgpt/latest`,
+        completionOptions: {
+          stream: false,
+          temperature: 0.7,
+          maxTokens: 500,
+        },
+        messages: [
+          {
+            role: 'system',
+            text: 'Ты эксперт по анализу видео-контента и психологии удержания внимания. Анализируй хуки и объясняй их эффективность.',
+          },
+          {
+            role: 'user',
+            text: prompt,
+          },
+        ],
+      }, {
+        timeout: 30000, // 30 секунд для анализа хука
+      });
+
+      const text = response.data.result?.alternatives?.[0]?.message?.text || '{}';
+      
+      // Парсим JSON ответ
+      try {
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        const parsedData = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(text);
+        
+        // Проверяем и заполняем структуру
+        return {
+          pluses: Array.isArray(parsedData.pluses) ? parsedData.pluses : [],
+          minuses: Array.isArray(parsedData.minuses) ? parsedData.minuses : [],
+          analysis: parsedData.analysis || 'Анализ хука недоступен',
+        };
+      } catch (parseError: any) {
+        console.error('Error parsing hook analysis JSON:', parseError);
+        // Возвращаем структуру по умолчанию
+        return {
+          pluses: ['Хук использует интригу для привлечения внимания'],
+          minuses: [],
+          analysis: 'Хук эффективен для удержания внимания зрителя',
+        };
+      }
+    } catch (error: any) {
+      console.error('Error analyzing hook:', error);
+      
+      if (error.code === 'ETIMEDOUT' || error.code === 'ENETUNREACH' || error.code === 'ECONNREFUSED') {
+        throw new Error(
+          'Ошибка подключения к Yandex GPT API. Проверьте интернет-соединение.',
+        );
+      }
+      
+      if (error?.response?.status === 401 || error?.response?.status === 403) {
+        throw new Error('Ошибка аутентификации Yandex GPT.');
+      }
+      if (error?.response?.status === 429) {
+        throw new Error('Превышен лимит запросов Yandex GPT. Попробуйте позже.');
+      }
+      
+      // Возвращаем структуру по умолчанию при ошибке
+      return {
+        pluses: ['Хук использует интригу для привлечения внимания'],
+        minuses: [],
+        analysis: 'Анализ хука недоступен из-за ошибки API',
+      };
     }
   }
 
@@ -433,6 +569,333 @@ ${context ? `Контекст: ${context}` : ''}
       }
       // Возвращаем исходное описание от Vision API при любой ошибке
       return visionDescription;
+    }
+  }
+
+  /**
+   * Анализирует паттерны и общие элементы из нескольких паспортов стиля
+   * Возвращает структурированную ДНК-формулу автора
+   */
+  async analyzeProfilePatterns(stylePassports: any[]): Promise<any> {
+    if (!stylePassports || stylePassports.length === 0) {
+      return {
+        structuralPatterns: [],
+        speechFormula: {},
+        consistency: [],
+        variability: [],
+        productConclusion: '',
+        dnaUsage: [],
+      };
+    }
+
+    const videosCount = stylePassports.length;
+    const countLabel = `(${videosCount}/${videosCount})`;
+
+    const prompt = `Проанализируй ${videosCount} "Паспортов стиля" одного автора и извлеки МАШИННО-ИЗВЛЕЧЁННУЮ ДНК-ФОРМУЛУ.
+
+Паспорты стиля:
+${JSON.stringify(stylePassports, null, 2)}
+
+КРИТИЧЕСКИ ВАЖНО:
+1. НЕ используй слова: "интересно", "уникально", "переходит", "эволюция", "различный", "меняется", "зависит от темы"
+2. ВСЁ должно быть измеримо и повторяемо
+3. Используй формат (X/${videosCount}) для повторяемости
+4. НЕ выдумывай данные - только то, что реально повторяется
+5. НЕ делай вывод про "эволюцию" (${videosCount} видео - мало)
+6. Пиши кратко, жёстко, структурно
+7. Вариативность допустима ТОЛЬКО в теме, НЕ в структуре
+8. Используй диапазоны и чёткие ограничения
+
+Верни ТОЛЬКО валидный JSON без дополнительного текста:
+{
+  "structuralPatterns": [
+    "Хук появляется в первые X-Y секунд (${videosCount}/${videosCount})",
+    "После хука всегда идёт [конкретное действие] (${videosCount}/${videosCount})",
+    "Финал [конкретное действие] (${videosCount}/${videosCount})",
+    "CTA: [тип CTA] (${videosCount}/${videosCount})"
+  ],
+  "speechFormula": {
+    "speedRange": "X-Y слов/мин",
+    "speedVariation": "<X%",
+    "emotionalTone": "[конкретный тон], допускает вариации, но без выхода за рамки [ограничение]",
+    "personalFormulations": "есть во всех видео (${videosCount}/${videosCount}) / отсутствует"
+  },
+  "consistency": [
+    "Структура повторяется: [конкретная последовательность] (${videosCount}/${videosCount})",
+    "Темп речи стабилен (разброс <X%)",
+    "[Другая консистентная характеристика с цифрами]"
+  ],
+  "variability": [
+    "Вариативность допустима ТОЛЬКО в теме, НЕ в структуре",
+    "[Что стабильно] - стабильно (${videosCount}/${videosCount})",
+    "[Что меняется] - меняется, но в пределах [диапазон/ограничение]"
+  ],
+  "productConclusion": "Это не отдельные видео, а воспроизводимая формула автора.",
+  "dnaUsage": [
+    "При генерации нового сценария мы ОБЯЗАНЫ делать хук ≤ 5 секунд",
+    "При генерации мы ОБЯЗАНЫ использовать [конкретную характеристику из speechFormula]",
+    "При генерации мы ОБЯЗАНЫ избегать [что запрещено]",
+    "При генерации мы ОБЯЗАНЫ [конкретное правило из structuralPatterns]",
+    "Структура видео должна соответствовать выявленной формуле (${videosCount}/${videosCount})"
+  ]
+}
+
+Начни ответ сразу с { без предисловий.`;
+
+    try {
+      const response = await this.axiosInstance.post('/completion', {
+        modelUri: `gpt://${this.folderId}/yandexgpt/latest`,
+        completionOptions: {
+          stream: false,
+          temperature: 0.7,
+          maxTokens: 1000,
+        },
+        messages: [
+          {
+            role: 'system',
+            text: 'Ты AI-аналитик, который извлекает машинно-извлечённую ДНК-формулу автора из видео. Ты НЕ пишешь литературные описания. Ты выдаёшь только измеримые, повторяемые паттерны с цифрами, процентами и форматом (X/N). Запрещено использовать слова: "интересно", "уникально", "переходит", "эволюция".',
+          },
+          {
+            role: 'user',
+            text: prompt,
+          },
+        ],
+      }, {
+        timeout: 30000,
+      });
+
+      const text = response.data.result?.alternatives?.[0]?.message?.text || '{}';
+      
+      try {
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        const parsedData = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(text);
+        
+        return {
+          structuralPatterns: Array.isArray(parsedData.structuralPatterns) ? parsedData.structuralPatterns : [],
+          speechFormula: parsedData.speechFormula || {},
+          consistency: Array.isArray(parsedData.consistency) ? parsedData.consistency : [],
+          variability: Array.isArray(parsedData.variability) ? parsedData.variability : [],
+          productConclusion: parsedData.productConclusion || 'Это не отдельные видео, а воспроизводимая формула автора.',
+          dnaUsage: Array.isArray(parsedData.dnaUsage) ? parsedData.dnaUsage : [],
+        };
+      } catch (parseError: any) {
+        console.error('Error parsing profile patterns JSON:', parseError);
+        return {
+          structuralPatterns: [],
+          speechFormula: {},
+          consistency: [],
+          variability: [],
+          productConclusion: 'Это не отдельные видео, а воспроизводимая формула автора.',
+          dnaUsage: [],
+        };
+      }
+    } catch (error: any) {
+      console.error('Error analyzing profile patterns:', error);
+      return {
+        structuralPatterns: [],
+        speechFormula: {},
+        consistency: [],
+        variability: [],
+        productConclusion: 'Это не отдельные видео, а воспроизводимая формула автора.',
+        dnaUsage: [],
+      };
+    }
+  }
+
+  /**
+   * Анализирует описание профиля автора и извлекает структурированную информацию
+   */
+  async analyzeProfileDescription(profileDescription: string, profileBio: string, profileLinks: string[], ctaInBio: string): Promise<any> {
+    if (!profileDescription && !profileBio) {
+      return {
+        hasExternalLinks: false,
+        repeatingCtaInHeader: 'не обнаружено',
+        ctaType: 'не обнаружено',
+        consistency: 'не обнаружено',
+        profileAsExtension: false,
+      };
+    }
+
+    const prompt = `Проанализируй описание профиля автора и извлеки структурированную информацию.
+
+ОПИСАНИЕ ПРОФИЛЯ:
+${profileDescription || profileBio || 'не указано'}
+
+BIO:
+${profileBio || 'не указано'}
+
+НАЙДЕННЫЕ ССЫЛКИ:
+${profileLinks.length > 0 ? profileLinks.join('\n') : 'не обнаружено'}
+
+CTA В BIO:
+${ctaInBio || 'не обнаружено'}
+
+КРИТИЧЕСКИ ВАЖНО:
+1. НЕ выдумывай данные - только то, что реально есть
+2. Если данных нет, пиши "не обнаружено"
+3. Пиши кратко, жёстко, структурно
+4. НЕ используй литературные описания
+
+Верни ТОЛЬКО валидный JSON без дополнительного текста:
+{
+  "hasExternalLinks": true/false,
+  "repeatingCtaInHeader": "[конкретный CTA из шапки или 'не обнаружено']",
+  "ctaType": "внешний (уводит трафик) / внутренний / не обнаружено",
+  "consistency": "CTA в видео совпадает с CTA в профиле (да / нет / не обнаружено)",
+  "profileAsExtension": true/false
+}
+
+Начни ответ сразу с { без предисловий.`;
+
+    try {
+      const response = await this.axiosInstance.post('/completion', {
+        modelUri: `gpt://${this.folderId}/yandexgpt/latest`,
+        completionOptions: {
+          stream: false,
+          temperature: 0.3,
+          maxTokens: 500,
+        },
+        messages: [
+          {
+            role: 'system',
+            text: 'Ты AI-аналитик, который извлекает структурированную информацию из описания профиля. Ты НЕ пишешь литературные описания. Ты выдаёшь только факты. Если данных нет, ты пишешь "не обнаружено".',
+          },
+          {
+            role: 'user',
+            text: prompt,
+          },
+        ],
+      }, {
+        timeout: 20000,
+      });
+
+      const text = response.data.result?.alternatives?.[0]?.message?.text || '{}';
+      
+      try {
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        const parsedData = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(text);
+        
+        return {
+          hasExternalLinks: parsedData.hasExternalLinks === true,
+          repeatingCtaInHeader: parsedData.repeatingCtaInHeader || 'не обнаружено',
+          ctaType: parsedData.ctaType || 'не обнаружено',
+          consistency: parsedData.consistency || 'не обнаружено',
+          profileAsExtension: parsedData.profileAsExtension === true,
+        };
+      } catch (parseError: any) {
+        console.error('Error parsing profile description JSON:', parseError);
+        return {
+          hasExternalLinks: profileLinks.length > 0,
+          repeatingCtaInHeader: ctaInBio || 'не обнаружено',
+          ctaType: profileLinks.length > 0 ? 'внешний (уводит трафик)' : 'не обнаружено',
+          consistency: 'не обнаружено',
+          profileAsExtension: false,
+        };
+      }
+    } catch (error: any) {
+      console.error('Error analyzing profile description:', error);
+      return {
+        hasExternalLinks: profileLinks.length > 0,
+        repeatingCtaInHeader: ctaInBio || 'не обнаружено',
+        ctaType: profileLinks.length > 0 ? 'внешний (уводит трафик)' : 'не обнаружено',
+        consistency: 'не обнаружено',
+        profileAsExtension: false,
+      };
+    }
+  }
+
+  /**
+   * Анализирует шапку профиля автора отдельно
+   */
+  async analyzeProfileHeader(profileHeader: string): Promise<any> {
+    if (!profileHeader || profileHeader.trim().length === 0) {
+      return {
+        headerText: 'не указано',
+        analysis: 'Шапка профиля отсутствует или пуста',
+      };
+    }
+
+    const prompt = `Проанализируй шапку профиля автора и извлеки структурированную информацию.
+
+ШАПКА ПРОФИЛЯ:
+${profileHeader}
+
+КРИТИЧЕСКИ ВАЖНО:
+1. НЕ выдумывай данные - только то, что реально есть
+2. Если данных нет, пиши "не обнаружено"
+3. Пиши кратко, жёстко, структурно
+4. НЕ используй литературные описания
+5. Фокусируйся на CTA, ключевых словах, структуре
+
+Верни ТОЛЬКО валидный JSON без дополнительного текста:
+{
+  "headerText": "[полный текст шапки]",
+  "keyWords": ["ключевое слово 1", "ключевое слово 2"],
+  "hasCta": true/false,
+  "ctaText": "[текст CTA или 'не обнаружено']",
+  "structure": "[одно предложение о структуре шапки]",
+  "analysis": "[краткий анализ: что делает шапка, какую роль играет]"
+}
+
+Начни ответ сразу с { без предисловий.`;
+
+    try {
+      const response = await this.axiosInstance.post('/completion', {
+        modelUri: `gpt://${this.folderId}/yandexgpt/latest`,
+        completionOptions: {
+          stream: false,
+          temperature: 0.3,
+          maxTokens: 400,
+        },
+        messages: [
+          {
+            role: 'system',
+            text: 'Ты AI-аналитик, который анализирует шапки профилей. Ты НЕ пишешь литературные описания. Ты выдаёшь только факты и структурированный анализ.',
+          },
+          {
+            role: 'user',
+            text: prompt,
+          },
+        ],
+      }, {
+        timeout: 20000,
+      });
+
+      const text = response.data.result?.alternatives?.[0]?.message?.text || '{}';
+      
+      try {
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        const parsedData = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(text);
+        
+        return {
+          headerText: parsedData.headerText || profileHeader,
+          keyWords: Array.isArray(parsedData.keyWords) ? parsedData.keyWords : [],
+          hasCta: parsedData.hasCta === true,
+          ctaText: parsedData.ctaText || 'не обнаружено',
+          structure: parsedData.structure || 'не указано',
+          analysis: parsedData.analysis || 'Анализ недоступен',
+        };
+      } catch (parseError: any) {
+        console.error('Error parsing profile header JSON:', parseError);
+        return {
+          headerText: profileHeader,
+          keyWords: [],
+          hasCta: false,
+          ctaText: 'не обнаружено',
+          structure: 'не указано',
+          analysis: 'Ошибка анализа',
+        };
+      }
+    } catch (error: any) {
+      console.error('Error analyzing profile header:', error);
+      return {
+        headerText: profileHeader,
+        keyWords: [],
+        hasCta: false,
+        ctaText: 'не обнаружено',
+        structure: 'не указано',
+        analysis: 'Ошибка анализа',
+      };
     }
   }
 }
