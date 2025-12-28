@@ -948,21 +948,19 @@ body {
 }
 
 .profile-video-link {
-  background: #fff3e0;
-  border-radius: 8px;
-  padding: 15px;
   margin-top: 15px;
 }
 
 .profile-video-link ul {
   list-style: none;
+  
   padding: 0;
   margin: 10px 0;
 }
 
 .profile-video-link li {
-  padding: 8px 0;
-  border-bottom: 1px solid #ffe0b2;
+  padding: 8px 15px;
+  border-bottom: 1px solid var(--border);
   line-height: 1.6;
 }
 
