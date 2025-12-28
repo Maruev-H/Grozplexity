@@ -1,0 +1,22 @@
+node_modules
+dist
+build
+.env
+.env.local
+uploads
+processed
+*.log
+.DS_Store
+
+# Google Cloud credentials
+google-credentials.json
+**/google-credentials.json
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!nest-cli.json
+!vite.config.ts
+!eslint.config.*
+!jest.config.*
+

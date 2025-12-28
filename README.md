@@ -6,8 +6,9 @@
 
 ### Уровень 1: "Наблюдатель"
 - Загрузка видео файлов
+- **Скачивание видео по URL** (YouTube, TikTok, Instagram) через universalDownloader
 - Извлечение аудиодорожки
-- Транскрипция аудио в текст (Google Speech-to-Text)
+- Транскрипция аудио в текст (Yandex Speech-to-Text, до 4 часов)
 - Извлечение ключевых кадров
 
 ### Уровень 2: "Аналитик"
@@ -26,10 +27,12 @@
 ### Backend
 - **NestJS** - фреймворк для Node.js
 - **Yandex GPT API** - для анализа контента и генерации сценариев
-- **Yandex Speech-to-Text API** - для транскрипции аудио
+- **Yandex Speech-to-Text API** - для транскрипции аудио (асинхронное распознавание до 4 часов)
 - **Yandex Vision API** - для анализа изображений кадров
+- **Yandex Object Storage** - для хранения временных файлов при асинхронном распознавании
 - **FFmpeg** - для обработки видео
 - **Multer** - для загрузки файлов
+- **universalDownloader** - для скачивания видео с YouTube, TikTok, Instagram
 
 ### Frontend
 - **React** + **TypeScript**
@@ -70,7 +73,11 @@ YANDEX_API_KEY=your_yandex_api_key_here
 YANDEX_FOLDER_ID=your_yandex_folder_id_here
 FFMPEG_PATH=D:\Utils\ffmpeg\bin
 PORT=3000
+DOWNLOADER_URL=http://localhost:5000
 ```
+
+**Примечание:** 
+- `DOWNLOADER_URL` - URL universalDownloader сервиса (по умолчанию http://localhost:5000)
 
 **Примечание:** 
 - `YANDEX_API_KEY` - **обязателен** для работы системы
